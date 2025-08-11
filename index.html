@@ -1,0 +1,106 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glasses Try-On Prototype</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #141E30, #243B55);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 2em;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+        }
+
+        video {
+            border: 3px solid #00c6ff;
+            border-radius: 12px;
+            box-shadow: 0 0 15px rgba(0, 198, 255, 0.7);
+            max-width: 90%;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 24px;
+            font-size: 1em;
+            color: white;
+            background: linear-gradient(90deg, #00c6ff, #0072ff);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4);
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🕶 Glasses Try-On Prototype</h1>
+    <video id="video" autoplay playsinline></video>
+    <button id="calibrateQR">📏 Calibrate with QR</button>
+
+    <script type="module">
+        import * as faceapi from 'https://cdn.jsdelivr.net/npm/face-api.js';
+        import jsQR from 'https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.min.js';
+
+        let video = document.getElementById('video');
+        let mmPerPixel = null;
+
+        async function startVideo() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+        }
+
+        function scanQRForCalibration(canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            if (code) {
+                const corners = code.location;
+                const dx = corners.bottomRightCorner.x - corners.bottomLeftCorner.x;
+                const dy = corners.bottomRightCorner.y - corners.bottomLeftCorner.y;
+                const pixelWidth = Math.sqrt(dx * dx + dy * dy);
+                mmPerPixel = 50 / pixelWidth; // 50mm QR code width
+                alert(`✅ Calibration successful! mm/px = ${mmPerPixel.toFixed(4)}`);
+                return true;
+            }
+            return false;
+        }
+
+        document.getElementById('calibrateQR').addEventListener('click', async () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            let success = false;
+            for (let i = 0; i < 100; i++) {
+                success = scanQRForCalibration(canvas);
+                if (success) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
+            if (!success) alert('⚠️ QR code not detected. Please try again.');
+        });
+
+        startVideo();
+    </script>
+</body>
+
+</html>
