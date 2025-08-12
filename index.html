@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Virtual Glasses Try-On</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/face_mesh.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/camera_utils.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/control_utils.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/drawing_utils.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
     <style>
         * {
             margin: 0;
@@ -319,8 +317,7 @@
                 this.ctx = this.canvas.getContext('2d');
                 this.status = document.getElementById('status');
                 
-                this.faceMesh = null;
-                this.camera = null;
+                this.detector = null;
                 this.currentFrame = 'aviator';
                 this.currentColor = 'black';
                 this.scale = 1.0;
@@ -330,6 +327,7 @@
                 
                 this.faceDetected = false;
                 this.landmarks = null;
+                this.animationId = null;
                 
                 // Frame styles
                 this.frameStyles = {
@@ -350,7 +348,7 @@
 
             async init() {
                 this.setupEventListeners();
-                await this.loadFaceMesh();
+                await this.loadFaceDetection();
                 this.startCamera();
             }
 
@@ -386,31 +384,37 @@
                 };
             }
 
-            async loadFaceMesh() {
+            async loadFaceDetection() {
                 try {
-                    this.faceMesh = new FaceMesh({
-                        locateFile: (file) => {
-                            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                    this.updateStatus('Loading face detection model...', 'loading');
+                    
+                    await tf.ready();
+                    this.detector = await faceLandmarksDetection.createDetector(
+                        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+                        {
+                            runtime: 'tfjs',
+                            maxFaces: 1,
+                            refineLandmarks: true
                         }
-                    });
-
-                    this.faceMesh.setOptions({
-                        maxNumFaces: 1,
-                        refineLandmarks: true,
-                        minDetectionConfidence: 0.5,
-                        minTrackingConfidence: 0.5
-                    });
-
-                    this.faceMesh.onResults((results) => this.onResults(results));
-                    this.updateStatus('Face detection loaded', 'ready');
+                    );
+                    
+                    this.updateStatus('Face detection loaded successfully!', 'ready');
+                    console.log('Face detection model loaded');
                 } catch (error) {
-                    console.error('Error loading FaceMesh:', error);
-                    this.updateStatus('Error loading face detection', 'error');
+                    console.error('Error loading face detection:', error);
+                    this.updateStatus('Error loading face detection. Check console for details.', 'error');
                 }
             }
 
             async startCamera() {
                 try {
+                    this.updateStatus('Starting camera...', 'loading');
+                    
+                    // Stop any existing stream
+                    if (this.video.srcObject) {
+                        this.video.srcObject.getTracks().forEach(track => track.stop());
+                    }
+
                     const stream = await navigator.mediaDevices.getUserMedia({
                         video: { 
                             facingMode: this.facingMode,
@@ -420,14 +424,15 @@
                     });
 
                     this.video.srcObject = stream;
+                    
                     this.video.onloadedmetadata = () => {
                         this.setupCanvas();
                         this.startDetection();
-                        this.updateStatus('Camera ready - Position your face in the frame', 'ready');
+                        this.updateStatus('Camera ready! Position your face in the frame', 'ready');
                     };
                 } catch (error) {
                     console.error('Camera access error:', error);
-                    this.updateStatus('Camera access denied or not available', 'error');
+                    this.updateStatus('Camera access denied. Please allow camera permissions.', 'error');
                 }
             }
 
@@ -437,99 +442,181 @@
                 this.canvas.height = this.video.videoHeight;
                 this.canvas.style.width = rect.width + 'px';
                 this.canvas.style.height = rect.height + 'px';
+                
+                console.log(`Canvas setup: ${this.canvas.width}x${this.canvas.height}`);
             }
 
             async startDetection() {
-                if (this.faceMesh && this.video.readyState === 4) {
-                    await this.faceMesh.send({ image: this.video });
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
                 }
-                requestAnimationFrame(() => this.startDetection());
+                
+                const detectFaces = async () => {
+                    if (this.video.readyState === 4 && this.detector) {
+                        try {
+                            const faces = await this.detector.estimateFaces(this.video);
+                            this.onResults(faces);
+                        } catch (error) {
+                            console.error('Detection error:', error);
+                        }
+                    }
+                    this.animationId = requestAnimationFrame(detectFaces);
+                };
+                
+                detectFaces();
             }
 
-            onResults(results) {
+            onResults(faces) {
+                // Clear canvas
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 
-                if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                if (faces && faces.length > 0) {
                     this.faceDetected = true;
-                    this.landmarks = results.multiFaceLandmarks[0];
+                    this.landmarks = faces[0].keypoints;
+                    
+                    // Update status to show face detected
+                    if (this.status.textContent.includes('ready')) {
+                        this.updateStatus('✅ Face detected! Glasses should appear', 'ready');
+                    }
                     
                     this.calculateMeasurements();
+                    
+                    // Draw debug points to show face is detected
+                    this.drawDebugPoints();
                     
                     if (this.currentFrame && this.currentFrame !== 'none') {
                         this.drawGlasses();
                     }
                 } else {
                     this.faceDetected = false;
+                    // Update status to show no face detected
+                    if (this.status.textContent.includes('detected')) {
+                        this.updateStatus('👀 Looking for face... Move closer to camera', 'loading');
+                    }
+                    
+                    // Reset measurements
+                    document.getElementById('eyeDistance').textContent = '-';
+                    document.getElementById('faceWidth').textContent = '-';
+                    document.getElementById('noseBridge').textContent = '-';
                 }
             }
 
-            calculateMeasurements() {
+            drawDebugPoints() {
                 if (!this.landmarks) return;
+                
+                // Draw small debug dots on key facial points
+                this.ctx.fillStyle = 'red';
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 1;
+                
+                // Key landmark indices for MediaPipe Face Mesh
+                const keyPoints = [
+                    33,   // Left eye outer corner
+                    263,  // Right eye outer corner
+                    168,  // Nose bridge
+                    1,    // Nose tip
+                    234,  // Left face boundary
+                    454   // Right face boundary
+                ];
+                
+                keyPoints.forEach(index => {
+                    if (this.landmarks[index]) {
+                        const point = this.landmarks[index];
+                        const x = point.x;
+                        const y = point.y;
+                        
+                        this.ctx.beginPath();
+                        this.ctx.arc(x, y, 3, 0, 2 * Math.PI);
+                        this.ctx.fill();
+                        this.ctx.stroke();
+                    }
+                });
+            }
 
-                // Key facial landmarks (MediaPipe indices)
-                const leftEye = this.landmarks[33];   // Left eye outer corner
-                const rightEye = this.landmarks[263]; // Right eye outer corner
-                const noseTip = this.landmarks[1];    // Nose tip
-                const leftFace = this.landmarks[234]; // Left face boundary
-                const rightFace = this.landmarks[454]; // Right face boundary
+            calculateMeasurements() {
+                if (!this.landmarks || this.landmarks.length < 468) return;
 
-                // Calculate distances in pixels
-                const eyeDistancePx = Math.sqrt(
-                    Math.pow((rightEye.x - leftEye.x) * this.canvas.width, 2) +
-                    Math.pow((rightEye.y - leftEye.y) * this.canvas.height, 2)
-                );
+                try {
+                    // Key facial landmarks (MediaPipe indices)
+                    const leftEye = this.landmarks[33];   // Left eye outer corner
+                    const rightEye = this.landmarks[263]; // Right eye outer corner
+                    const noseTip = this.landmarks[1];    // Nose tip
+                    const leftFace = this.landmarks[234]; // Left face boundary
+                    const rightFace = this.landmarks[454]; // Right face boundary
 
-                const faceWidthPx = Math.sqrt(
-                    Math.pow((rightFace.x - leftFace.x) * this.canvas.width, 2) +
-                    Math.pow((rightFace.y - leftFace.y) * this.canvas.height, 2)
-                );
+                    if (!leftEye || !rightEye || !leftFace || !rightFace) {
+                        console.log('Missing required landmarks');
+                        return;
+                    }
 
-                // Convert to mm (assuming average interpupillary distance is 63mm)
-                const avgIPD = 63; // mm
-                const pixelsToMm = avgIPD / eyeDistancePx;
+                    // Calculate distances in pixels
+                    const eyeDistancePx = Math.sqrt(
+                        Math.pow(rightEye.x - leftEye.x, 2) +
+                        Math.pow(rightEye.y - leftEye.y, 2)
+                    );
 
-                const eyeDistanceMm = Math.round(eyeDistancePx * pixelsToMm);
-                const faceWidthMm = Math.round(faceWidthPx * pixelsToMm);
-                const noseBridgeMm = Math.round(eyeDistanceMm * 0.3); // Estimated
+                    const faceWidthPx = Math.sqrt(
+                        Math.pow(rightFace.x - leftFace.x, 2) +
+                        Math.pow(rightFace.y - leftFace.y, 2)
+                    );
 
-                // Update display
-                document.getElementById('eyeDistance').textContent = eyeDistanceMm;
-                document.getElementById('faceWidth').textContent = faceWidthMm;
-                document.getElementById('noseBridge').textContent = noseBridgeMm;
+                    // Convert to mm (assuming average interpupillary distance is 63mm)
+                    const avgIPD = 63; // mm
+                    const pixelsToMm = avgIPD / eyeDistancePx;
+
+                    const eyeDistanceMm = Math.round(eyeDistancePx * pixelsToMm);
+                    const faceWidthMm = Math.round(faceWidthPx * pixelsToMm);
+                    const noseBridgeMm = Math.round(eyeDistanceMm * 0.3); // Estimated
+
+                    // Update display
+                    document.getElementById('eyeDistance').textContent = eyeDistanceMm;
+                    document.getElementById('faceWidth').textContent = faceWidthMm;
+                    document.getElementById('noseBridge').textContent = noseBridgeMm;
+                    
+                    console.log(`Measurements: Eye distance: ${eyeDistanceMm}mm, Face width: ${faceWidthMm}mm`);
+                } catch (error) {
+                    console.error('Error calculating measurements:', error);
+                }
             }
 
             drawGlasses() {
-                if (!this.landmarks) return;
+                if (!this.landmarks || this.landmarks.length < 468) return;
 
-                const leftEye = this.landmarks[33];
-                const rightEye = this.landmarks[263];
-                const noseBridge = this.landmarks[168];
+                try {
+                    const leftEye = this.landmarks[33];
+                    const rightEye = this.landmarks[263];
+                    const noseBridge = this.landmarks[168];
 
-                // Calculate glasses position and size
-                const centerX = (leftEye.x + rightEye.x) / 2 * this.canvas.width;
-                const centerY = (leftEye.y + rightEye.y) / 2 * this.canvas.height + this.offsetY;
-                
-                const eyeDistance = Math.sqrt(
-                    Math.pow((rightEye.x - leftEye.x) * this.canvas.width, 2) +
-                    Math.pow((rightEye.y - leftEye.y) * this.canvas.height, 2)
-                );
+                    if (!leftEye || !rightEye || !noseBridge) return;
 
-                const glassesWidth = eyeDistance * 1.8 * this.scale;
-                const glassesHeight = glassesWidth * 0.4;
+                    // Calculate glasses position and size
+                    const centerX = (leftEye.x + rightEye.x) / 2;
+                    const centerY = (leftEye.y + rightEye.y) / 2 + this.offsetY;
+                    
+                    const eyeDistance = Math.sqrt(
+                        Math.pow(rightEye.x - leftEye.x, 2) +
+                        Math.pow(rightEye.y - leftEye.y, 2)
+                    );
 
-                // Calculate rotation angle based on eye alignment
-                const eyeAngle = Math.atan2(
-                    (rightEye.y - leftEye.y) * this.canvas.height,
-                    (rightEye.x - leftEye.x) * this.canvas.width
-                ) * 180 / Math.PI;
+                    const glassesWidth = eyeDistance * 1.8 * this.scale;
+                    const glassesHeight = glassesWidth * 0.4;
 
-                this.ctx.save();
-                this.ctx.translate(centerX, centerY);
-                this.ctx.rotate((eyeAngle + this.rotation) * Math.PI / 180);
-                
-                this.drawGlassesStyle(glassesWidth, glassesHeight);
-                
-                this.ctx.restore();
+                    // Calculate rotation angle based on eye alignment
+                    const eyeAngle = Math.atan2(
+                        rightEye.y - leftEye.y,
+                        rightEye.x - leftEye.x
+                    ) * 180 / Math.PI;
+
+                    this.ctx.save();
+                    this.ctx.translate(centerX, centerY);
+                    this.ctx.rotate((eyeAngle + this.rotation) * Math.PI / 180);
+                    
+                    this.drawGlassesStyle(glassesWidth, glassesHeight);
+                    
+                    this.ctx.restore();
+                } catch (error) {
+                    console.error('Error drawing glasses:', error);
+                }
             }
 
             drawGlassesStyle(width, height) {
