@@ -1,69 +1,848 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Glasses Try-On Prototype</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtual Glasses Try-On</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/face_mesh.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/camera_utils.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/control_utils.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mediapipe/0.10.0/drawing_utils.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            font-weight: 700;
+        }
+
+        .camera-section {
+            position: relative;
+            margin-bottom: 30px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        #videoElement {
+            width: 100%;
+            height: auto;
+            max-height: 500px;
+            object-fit: cover;
+            display: block;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .control-group {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .control-group h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .glasses-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .glasses-option {
+            aspect-ratio: 1;
+            background: white;
+            border: 3px solid transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glasses-option:hover {
+            border-color: #667eea;
+            transform: scale(1.05);
+        }
+
+        .glasses-option.active {
+            border-color: #764ba2;
+            box-shadow: 0 0 20px rgba(118, 75, 162, 0.4);
+        }
+
+        .slider-group {
+            margin: 15px 0;
+        }
+
+        .slider-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .measurements {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            font-family: monospace;
+        }
+
+        .status {
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+
+        .status.ready {
+            background: rgba(76, 175, 80, 0.2);
+            color: #2e7d32;
+        }
+
+        .status.loading {
+            background: rgba(255, 193, 7, 0.2);
+            color: #f57c00;
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.2);
+            color: #c62828;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .controls {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-  <h1>Glasses Try-On Prototype</h1>
-  <video id="video" autoplay playsinline style="width: 100%; max-width: 500px; border: 1px solid #ccc"></video>
-  <br />
-  <button id="calibrateQR">Calibrate with QR</button>
+    <div class="container">
+        <h1>🕶️ Virtual Glasses Try-On</h1>
+        
+        <div id="status" class="status loading">Initializing camera...</div>
+        
+        <div class="camera-section">
+            <video id="videoElement" autoplay muted playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.min.js"></script>
-  <script>
-    let video = document.getElementById('video');
-    let mmPerPixel = null;
+        <div class="controls">
+            <div class="control-group">
+                <h3>📷 Camera Controls</h3>
+                <button id="startBtn" class="btn">Start Camera</button>
+                <button id="captureBtn" class="btn">📸 Capture</button>
+                <button id="toggleBtn" class="btn">Switch Camera</button>
+            </div>
 
-    async function startVideo() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        await new Promise((resolve) => (video.onloadedmetadata = resolve));
-      } catch (err) {
-        alert('Error accessing camera: ' + err);
-      }
-    }
+            <div class="control-group">
+                <h3>🕶️ Frame Style</h3>
+                <div class="glasses-gallery">
+                    <div class="glasses-option active" data-frame="aviator">
+                        <svg width="60" height="25" viewBox="0 0 60 25">
+                            <ellipse cx="15" cy="12" rx="12" ry="10" fill="none" stroke="#333" stroke-width="2"/>
+                            <ellipse cx="45" cy="12" rx="12" ry="10" fill="none" stroke="#333" stroke-width="2"/>
+                            <path d="M27 8 Q30 12 33 8" stroke="#333" stroke-width="2" fill="none"/>
+                            <line x1="3" y1="12" x2="-5" y2="8" stroke="#333" stroke-width="2"/>
+                            <line x1="57" y1="12" x2="65" y2="8" stroke="#333" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <div class="glasses-option" data-frame="wayframe">
+                        <svg width="60" height="25" viewBox="0 0 60 25">
+                            <rect x="3" y="5" width="22" height="14" rx="3" fill="none" stroke="#333" stroke-width="3"/>
+                            <rect x="35" y="5" width="22" height="14" rx="3" fill="none" stroke="#333" stroke-width="3"/>
+                            <line x1="25" y1="12" x2="35" y2="12" stroke="#333" stroke-width="3"/>
+                            <line x1="3" y1="12" x2="-5" y2="8" stroke="#333" stroke-width="3"/>
+                            <line x1="57" y1="12" x2="65" y2="8" stroke="#333" stroke-width="3"/>
+                        </svg>
+                    </div>
+                    <div class="glasses-option" data-frame="round">
+                        <svg width="60" height="25" viewBox="0 0 60 25">
+                            <circle cx="15" cy="12" r="10" fill="none" stroke="#333" stroke-width="2"/>
+                            <circle cx="45" cy="12" r="10" fill="none" stroke="#333" stroke-width="2"/>
+                            <path d="M25 10 Q30 14 35 10" stroke="#333" stroke-width="2" fill="none"/>
+                            <line x1="5" y1="12" x2="-3" y2="8" stroke="#333" stroke-width="1.5"/>
+                            <line x1="55" y1="12" x2="63" y2="8" stroke="#333" stroke-width="1.5"/>
+                        </svg>
+                    </div>
+                    <div class="glasses-option" data-frame="none">❌</div>
+                </div>
+            </div>
 
-    function scanQRForCalibration(canvas) {
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code) {
-        const corners = code.location;
-        const dx = corners.bottomRightCorner.x - corners.bottomLeftCorner.x;
-        const dy = corners.bottomRightCorner.y - corners.bottomLeftCorner.y;
-        const pixelWidth = Math.sqrt(dx * dx + dy * dy);
-        mmPerPixel = 50 / pixelWidth; // assuming 50mm QR code width
-        alert(`Calibration successful! mm/px = ${mmPerPixel.toFixed(4)}`);
-        return true;
-      }
-      return false;
-    }
+            <div class="control-group">
+                <h3>🎨 Frame Color</h3>
+                <div class="glasses-gallery">
+                    <div class="glasses-option active" data-color="black" style="background: linear-gradient(45deg, #1a1a1a, #333);">
+                        <div style="color: white; font-size: 12px; font-weight: bold;">BLACK</div>
+                    </div>
+                    <div class="glasses-option" data-color="brown" style="background: linear-gradient(45deg, #8B4513, #D2691E);">
+                        <div style="color: white; font-size: 12px; font-weight: bold;">BROWN</div>
+                    </div>
+                    <div class="glasses-option" data-color="gold" style="background: linear-gradient(45deg, #FFD700, #FFA500);">
+                        <div style="color: #333; font-size: 12px; font-weight: bold;">GOLD</div>
+                    </div>
+                </div>
+            </div>
 
-    document.getElementById('calibrateQR').addEventListener('click', async () => {
-      if (!video.videoWidth || !video.videoHeight) {
-        alert('Video not ready yet. Please wait a moment and try again.');
-        return;
-      }
+            <div class="control-group">
+                <h3>⚙️ Adjustments</h3>
+                <div class="slider-group">
+                    <label for="scaleSlider">Size: <span id="scaleValue">1.0</span></label>
+                    <input type="range" id="scaleSlider" class="slider" min="0.5" max="2.0" step="0.1" value="1.0">
+                </div>
+                <div class="slider-group">
+                    <label for="rotationSlider">Rotation: <span id="rotationValue">0°</span></label>
+                    <input type="range" id="rotationSlider" class="slider" min="-30" max="30" step="1" value="0">
+                </div>
+                <div class="slider-group">
+                    <label for="offsetYSlider">Vertical: <span id="offsetYValue">0</span></label>
+                    <input type="range" id="offsetYSlider" class="slider" min="-50" max="50" step="5" value="0">
+                </div>
+            </div>
+        </div>
 
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+        <div class="measurements" id="measurements">
+            <strong>Face Measurements:</strong><br>
+            Eye distance: <span id="eyeDistance">-</span> mm<br>
+            Face width: <span id="faceWidth">-</span> mm<br>
+            Nose bridge: <span id="noseBridge">-</span> mm
+        </div>
+    </div>
 
-      let success = false;
-      for (let i = 0; i < 100; i++) {
-        success = scanQRForCalibration(canvas);
-        if (success) break;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      if (!success) alert('QR code not detected. Please try again.');
-    });
+    <script>
+        class VirtualGlassesTryOn {
+            constructor() {
+                this.video = document.getElementById('videoElement');
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.status = document.getElementById('status');
+                
+                this.faceMesh = null;
+                this.camera = null;
+                this.currentFrame = 'aviator';
+                this.currentColor = 'black';
+                this.scale = 1.0;
+                this.rotation = 0;
+                this.offsetY = 0;
+                this.facingMode = 'user';
+                
+                this.faceDetected = false;
+                this.landmarks = null;
+                
+                // Frame styles
+                this.frameStyles = {
+                    aviator: 'aviator',
+                    wayframe: 'wayframe', 
+                    round: 'round'
+                };
 
-    startVideo();
-  </script>
+                // Color options
+                this.frameColors = {
+                    black: { stroke: '#1a1a1a', fill: 'rgba(26, 26, 26, 0.15)', accent: '#333' },
+                    brown: { stroke: '#8B4513', fill: 'rgba(139, 69, 19, 0.15)', accent: '#A0522D' },
+                    gold: { stroke: '#B8860B', fill: 'rgba(255, 215, 0, 0.15)', accent: '#DAA520' }
+                };
+
+                this.init();
+            }
+
+            async init() {
+                this.setupEventListeners();
+                await this.loadFaceMesh();
+                this.startCamera();
+            }
+
+            setupEventListeners() {
+                document.getElementById('startBtn').onclick = () => this.startCamera();
+                document.getElementById('captureBtn').onclick = () => this.captureSnapshot();
+                document.getElementById('toggleBtn').onclick = () => this.toggleCamera();
+
+                // Frame style selection
+                document.querySelectorAll('[data-frame]').forEach(option => {
+                    option.onclick = () => this.selectFrame(option.dataset.frame);
+                });
+
+                // Color selection
+                document.querySelectorAll('[data-color]').forEach(option => {
+                    option.onclick = () => this.selectColor(option.dataset.color);
+                });
+
+                // Sliders
+                document.getElementById('scaleSlider').oninput = (e) => {
+                    this.scale = parseFloat(e.target.value);
+                    document.getElementById('scaleValue').textContent = this.scale.toFixed(1);
+                };
+
+                document.getElementById('rotationSlider').oninput = (e) => {
+                    this.rotation = parseInt(e.target.value);
+                    document.getElementById('rotationValue').textContent = this.rotation + '°';
+                };
+
+                document.getElementById('offsetYSlider').oninput = (e) => {
+                    this.offsetY = parseInt(e.target.value);
+                    document.getElementById('offsetYValue').textContent = this.offsetY;
+                };
+            }
+
+            async loadFaceMesh() {
+                try {
+                    this.faceMesh = new FaceMesh({
+                        locateFile: (file) => {
+                            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                        }
+                    });
+
+                    this.faceMesh.setOptions({
+                        maxNumFaces: 1,
+                        refineLandmarks: true,
+                        minDetectionConfidence: 0.5,
+                        minTrackingConfidence: 0.5
+                    });
+
+                    this.faceMesh.onResults((results) => this.onResults(results));
+                    this.updateStatus('Face detection loaded', 'ready');
+                } catch (error) {
+                    console.error('Error loading FaceMesh:', error);
+                    this.updateStatus('Error loading face detection', 'error');
+                }
+            }
+
+            async startCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: this.facingMode,
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    });
+
+                    this.video.srcObject = stream;
+                    this.video.onloadedmetadata = () => {
+                        this.setupCanvas();
+                        this.startDetection();
+                        this.updateStatus('Camera ready - Position your face in the frame', 'ready');
+                    };
+                } catch (error) {
+                    console.error('Camera access error:', error);
+                    this.updateStatus('Camera access denied or not available', 'error');
+                }
+            }
+
+            setupCanvas() {
+                const rect = this.video.getBoundingClientRect();
+                this.canvas.width = this.video.videoWidth;
+                this.canvas.height = this.video.videoHeight;
+                this.canvas.style.width = rect.width + 'px';
+                this.canvas.style.height = rect.height + 'px';
+            }
+
+            async startDetection() {
+                if (this.faceMesh && this.video.readyState === 4) {
+                    await this.faceMesh.send({ image: this.video });
+                }
+                requestAnimationFrame(() => this.startDetection());
+            }
+
+            onResults(results) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                    this.faceDetected = true;
+                    this.landmarks = results.multiFaceLandmarks[0];
+                    
+                    this.calculateMeasurements();
+                    
+                    if (this.currentFrame && this.currentFrame !== 'none') {
+                        this.drawGlasses();
+                    }
+                } else {
+                    this.faceDetected = false;
+                }
+            }
+
+            calculateMeasurements() {
+                if (!this.landmarks) return;
+
+                // Key facial landmarks (MediaPipe indices)
+                const leftEye = this.landmarks[33];   // Left eye outer corner
+                const rightEye = this.landmarks[263]; // Right eye outer corner
+                const noseTip = this.landmarks[1];    // Nose tip
+                const leftFace = this.landmarks[234]; // Left face boundary
+                const rightFace = this.landmarks[454]; // Right face boundary
+
+                // Calculate distances in pixels
+                const eyeDistancePx = Math.sqrt(
+                    Math.pow((rightEye.x - leftEye.x) * this.canvas.width, 2) +
+                    Math.pow((rightEye.y - leftEye.y) * this.canvas.height, 2)
+                );
+
+                const faceWidthPx = Math.sqrt(
+                    Math.pow((rightFace.x - leftFace.x) * this.canvas.width, 2) +
+                    Math.pow((rightFace.y - leftFace.y) * this.canvas.height, 2)
+                );
+
+                // Convert to mm (assuming average interpupillary distance is 63mm)
+                const avgIPD = 63; // mm
+                const pixelsToMm = avgIPD / eyeDistancePx;
+
+                const eyeDistanceMm = Math.round(eyeDistancePx * pixelsToMm);
+                const faceWidthMm = Math.round(faceWidthPx * pixelsToMm);
+                const noseBridgeMm = Math.round(eyeDistanceMm * 0.3); // Estimated
+
+                // Update display
+                document.getElementById('eyeDistance').textContent = eyeDistanceMm;
+                document.getElementById('faceWidth').textContent = faceWidthMm;
+                document.getElementById('noseBridge').textContent = noseBridgeMm;
+            }
+
+            drawGlasses() {
+                if (!this.landmarks) return;
+
+                const leftEye = this.landmarks[33];
+                const rightEye = this.landmarks[263];
+                const noseBridge = this.landmarks[168];
+
+                // Calculate glasses position and size
+                const centerX = (leftEye.x + rightEye.x) / 2 * this.canvas.width;
+                const centerY = (leftEye.y + rightEye.y) / 2 * this.canvas.height + this.offsetY;
+                
+                const eyeDistance = Math.sqrt(
+                    Math.pow((rightEye.x - leftEye.x) * this.canvas.width, 2) +
+                    Math.pow((rightEye.y - leftEye.y) * this.canvas.height, 2)
+                );
+
+                const glassesWidth = eyeDistance * 1.8 * this.scale;
+                const glassesHeight = glassesWidth * 0.4;
+
+                // Calculate rotation angle based on eye alignment
+                const eyeAngle = Math.atan2(
+                    (rightEye.y - leftEye.y) * this.canvas.height,
+                    (rightEye.x - leftEye.x) * this.canvas.width
+                ) * 180 / Math.PI;
+
+                this.ctx.save();
+                this.ctx.translate(centerX, centerY);
+                this.ctx.rotate((eyeAngle + this.rotation) * Math.PI / 180);
+                
+                this.drawGlassesStyle(glassesWidth, glassesHeight);
+                
+                this.ctx.restore();
+            }
+
+            drawGlassesStyle(width, height) {
+                const frameStyle = this.frameStyles[this.currentFrame];
+                const colors = this.frameColors[this.currentColor];
+                
+                if (!frameStyle || !colors) return;
+
+                // Set colors based on selection
+                this.ctx.strokeStyle = colors.stroke;
+                this.ctx.lineWidth = 4;
+                this.ctx.fillStyle = colors.fill;
+
+                const lensWidth = width * 0.35;
+                const lensHeight = height * 0.8;
+                const bridge = width * 0.08;
+
+                switch (frameStyle) {
+                    case 'aviator':
+                        this.drawAviatorGlasses(lensWidth, lensHeight, bridge, colors);
+                        break;
+                    case 'wayframe':
+                        this.drawWayframeGlasses(lensWidth, lensHeight, bridge, colors);
+                        break;
+                    case 'round':
+                        this.drawRoundGlasses(lensWidth, lensHeight, bridge, colors);
+                        break;
+                }
+            }
+
+            drawAviatorGlasses(lensWidth, lensHeight, bridge, colors) {
+                // Set up realistic aviator proportions
+                const lensRadiusX = lensWidth * 0.5;
+                const lensRadiusY = lensHeight * 0.45;
+                
+                // Main lens frames with gradient effect
+                this.ctx.lineWidth = 4;
+                this.ctx.strokeStyle = colors.stroke;
+                
+                // Left lens - classic aviator teardrop
+                this.ctx.beginPath();
+                this.ctx.ellipse(-bridge/2 - lensRadiusX, -lensHeight*0.05, lensRadiusX, lensRadiusY, 0, 0, 2 * Math.PI);
+                
+                // Add lens tint
+                const gradient1 = this.ctx.createRadialGradient(-bridge/2 - lensRadiusX, -lensHeight*0.15, 0, -bridge/2 - lensRadiusX, -lensHeight*0.05, lensRadiusX);
+                gradient1.addColorStop(0, 'rgba(100, 100, 100, 0.1)');
+                gradient1.addColorStop(0.7, colors.fill);
+                gradient1.addColorStop(1, 'rgba(50, 50, 50, 0.3)');
+                this.ctx.fillStyle = gradient1;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Right lens
+                this.ctx.beginPath();
+                this.ctx.ellipse(bridge/2 + lensRadiusX, -lensHeight*0.05, lensRadiusX, lensRadiusY, 0, 0, 2 * Math.PI);
+                
+                const gradient2 = this.ctx.createRadialGradient(bridge/2 + lensRadiusX, -lensHeight*0.15, 0, bridge/2 + lensRadiusX, -lensHeight*0.05, lensRadiusX);
+                gradient2.addColorStop(0, 'rgba(100, 100, 100, 0.1)');
+                gradient2.addColorStop(0.7, colors.fill);
+                gradient2.addColorStop(1, 'rgba(50, 50, 50, 0.3)');
+                this.ctx.fillStyle = gradient2;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Aviator bridge (distinctive double bridge)
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeStyle = colors.accent;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2, -lensHeight*0.3);
+                this.ctx.quadraticCurveTo(0, -lensHeight*0.1, bridge/2, -lensHeight*0.3);
+                this.ctx.stroke();
+                
+                // Top bridge bar (classic aviator feature)
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2 - lensRadiusX*1.5, -lensHeight*0.4);
+                this.ctx.lineTo(bridge/2 + lensRadiusX*1.5, -lensHeight*0.4);
+                this.ctx.stroke();
+
+                // Temple arms with realistic thickness and curve
+                this.ctx.lineWidth = 4;
+                this.ctx.strokeStyle = colors.stroke;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2 - lensRadiusX*1.8, -lensHeight*0.05);
+                this.ctx.quadraticCurveTo(-bridge/2 - lensRadiusX*2.2, -lensHeight*0.2, -bridge/2 - lensRadiusX*2.8, -lensHeight*0.4);
+                this.ctx.moveTo(bridge/2 + lensRadiusX*1.8, -lensHeight*0.05);
+                this.ctx.quadraticCurveTo(bridge/2 + lensRadiusX*2.2, -lensHeight*0.2, bridge/2 + lensRadiusX*2.8, -lensHeight*0.4);
+                this.ctx.stroke();
+
+                // Add lens reflections for realism
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                this.ctx.beginPath();
+                this.ctx.ellipse(-bridge/2 - lensRadiusX*0.3, -lensHeight*0.25, lensRadiusX*0.2, lensRadiusY*0.3, -0.3, 0, Math.PI);
+                this.ctx.ellipse(bridge/2 + lensRadiusX*0.3, -lensHeight*0.25, lensRadiusX*0.2, lensRadiusY*0.3, 0.3, 0, Math.PI);
+                this.ctx.stroke();
+            }
+
+            drawRoundedRect(x, y, width, height, radius) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(x + radius, y);
+                this.ctx.lineTo(x + width - radius, y);
+                this.ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                this.ctx.lineTo(x + width, y + height - radius);
+                this.ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                this.ctx.lineTo(x + radius, y + height);
+                this.ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                this.ctx.lineTo(x, y + radius);
+                this.ctx.quadraticCurveTo(x, y, x + radius, y);
+                this.ctx.closePath();
+            }
+
+            drawWayframeGlasses(lensWidth, lensHeight, bridge, colors) {
+                const cornerRadius = 6;
+                const frameThickness = 5;
+                
+                // Left lens with thick frame
+                this.ctx.lineWidth = frameThickness;
+                this.ctx.strokeStyle = colors.stroke;
+                
+                this.drawRoundedRect(-bridge/2 - lensWidth, -lensHeight/2, lensWidth, lensHeight, cornerRadius);
+                
+                // Add gradient fill
+                const gradient1 = this.ctx.createLinearGradient(-bridge/2 - lensWidth, -lensHeight/2, -bridge/2 - lensWidth, lensHeight/2);
+                gradient1.addColorStop(0, 'rgba(200, 200, 200, 0.1)');
+                gradient1.addColorStop(0.5, colors.fill);
+                gradient1.addColorStop(1, 'rgba(100, 100, 100, 0.2)');
+                this.ctx.fillStyle = gradient1;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Right lens
+                this.drawRoundedRect(bridge/2, -lensHeight/2, lensWidth, lensHeight, cornerRadius);
+                
+                const gradient2 = this.ctx.createLinearGradient(bridge/2, -lensHeight/2, bridge/2, lensHeight/2);
+                gradient2.addColorStop(0, 'rgba(200, 200, 200, 0.1)');
+                gradient2.addColorStop(0.5, colors.fill);
+                gradient2.addColorStop(1, 'rgba(100, 100, 100, 0.2)');
+                this.ctx.fillStyle = gradient2;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Keyhole bridge (distinctive wayframe feature)
+                this.ctx.lineWidth = 6;
+                this.ctx.strokeStyle = colors.accent;
+                this.ctx.lineCap = 'round';
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2, -lensHeight*0.15);
+                this.ctx.lineTo(bridge/2, -lensHeight*0.15);
+                this.ctx.stroke();
+
+                // Temple arms (thick wayframe style)
+                this.ctx.lineWidth = 7;
+                this.ctx.strokeStyle = colors.stroke;
+                this.ctx.lineCap = 'round';
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2 - lensWidth, 0);
+                this.ctx.quadraticCurveTo(-bridge/2 - lensWidth - 30, -10, -bridge/2 - lensWidth - 55, -25);
+                this.ctx.moveTo(bridge/2 + lensWidth, 0);
+                this.ctx.quadraticCurveTo(bridge/2 + lensWidth + 30, -10, bridge/2 + lensWidth + 55, -25);
+                this.ctx.stroke();
+
+                // Add frame accent details
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeStyle = colors.accent;
+                this.ctx.setLineDash([]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2 - lensWidth*0.8, -lensHeight*0.35);
+                this.ctx.lineTo(-bridge/2 - lensWidth*0.2, -lensHeight*0.35);
+                this.ctx.moveTo(bridge/2 + lensWidth*0.2, -lensHeight*0.35);
+                this.ctx.lineTo(bridge/2 + lensWidth*0.8, -lensHeight*0.35);
+                this.ctx.stroke();
+
+                // Lens reflections
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                this.ctx.beginPath();
+                this.ctx.rect(-bridge/2 - lensWidth*0.7, -lensHeight*0.3, lensWidth*0.3, lensHeight*0.4);
+                this.ctx.rect(bridge/2 + lensWidth*0.4, -lensHeight*0.3, lensWidth*0.3, lensHeight*0.4);
+                this.ctx.stroke();
+            }
+
+            drawRoundGlasses(lensWidth, lensHeight, bridge, colors) {
+                const radius = Math.min(lensWidth, lensHeight) / 2;
+                
+                // Thin wire frame
+                this.ctx.lineWidth = 3;
+                this.ctx.strokeStyle = colors.stroke;
+
+                // Left lens
+                this.ctx.beginPath();
+                this.ctx.arc(-bridge/2 - radius, 0, radius, 0, 2 * Math.PI);
+                
+                // Subtle gradient for lens
+                const gradient1 = this.ctx.createRadialGradient(-bridge/2 - radius, -radius*0.3, 0, -bridge/2 - radius, 0, radius);
+                gradient1.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+                gradient1.addColorStop(0.6, colors.fill);
+                gradient1.addColorStop(1, 'rgba(150, 150, 150, 0.2)');
+                this.ctx.fillStyle = gradient1;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Right lens
+                this.ctx.beginPath();
+                this.ctx.arc(bridge/2 + radius, 0, radius, 0, 2 * Math.PI);
+                
+                const gradient2 = this.ctx.createRadialGradient(bridge/2 + radius, -radius*0.3, 0, bridge/2 + radius, 0, radius);
+                gradient2.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+                gradient2.addColorStop(0.6, colors.fill);
+                gradient2.addColorStop(1, 'rgba(150, 150, 150, 0.2)');
+                this.ctx.fillStyle = gradient2;
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                // Delicate wire bridge
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeStyle = colors.accent;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2, -radius*0.2);
+                this.ctx.quadraticCurveTo(0, radius*0.3, bridge/2, -radius*0.2);
+                this.ctx.stroke();
+
+                // Thin wire temple arms
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeStyle = colors.stroke;
+                this.ctx.beginPath();
+                this.ctx.moveTo(-bridge/2 - radius * 2, 0);
+                this.ctx.quadraticCurveTo(-bridge/2 - radius * 2.5, -8, -bridge/2 - radius * 3.2, -20);
+                this.ctx.moveTo(bridge/2 + radius * 2, 0);
+                this.ctx.quadraticCurveTo(bridge/2 + radius * 2.5, -8, bridge/2 + radius * 3.2, -20);
+                this.ctx.stroke();
+
+                // Inner rim detail (vintage look)
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeStyle = colors.accent;
+                this.ctx.beginPath();
+                this.ctx.arc(-bridge/2 - radius, 0, radius - 4, 0, 2 * Math.PI);
+                this.ctx.arc(bridge/2 + radius, 0, radius - 4, 0, 2 * Math.PI);
+                this.ctx.stroke();
+
+                // Lens highlights
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                this.ctx.beginPath();
+                this.ctx.arc(-bridge/2 - radius*0.4, -radius*0.4, radius*0.15, 0, Math.PI);
+                this.ctx.arc(bridge/2 + radius*0.4, -radius*0.4, radius*0.15, 0, Math.PI);
+                this.ctx.stroke();
+            }
+
+            selectFrame(type) {
+                this.currentFrame = type;
+                
+                document.querySelectorAll('[data-frame]').forEach(option => {
+                    option.classList.remove('active');
+                });
+                
+                if (type !== 'none') {
+                    document.querySelector(`[data-frame="${type}"]`).classList.add('active');
+                } else {
+                    document.querySelector('[data-frame="none"]').classList.add('active');
+                }
+            }
+
+            selectColor(color) {
+                this.currentColor = color;
+                
+                document.querySelectorAll('[data-color]').forEach(option => {
+                    option.classList.remove('active');
+                });
+                
+                document.querySelector(`[data-color="${color}"]`).classList.add('active');
+            }
+
+            toggleCamera() {
+                this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
+                this.startCamera();
+            }
+
+            captureSnapshot() {
+                const captureCanvas = document.createElement('canvas');
+                const captureCtx = captureCanvas.getContext('2d');
+                
+                captureCanvas.width = this.canvas.width;
+                captureCanvas.height = this.canvas.height;
+                
+                // Draw video frame
+                captureCtx.drawImage(this.video, 0, 0, captureCanvas.width, captureCanvas.height);
+                
+                // Draw glasses overlay
+                if (this.faceDetected && this.currentFrame && this.currentFrame !== 'none') {
+                    captureCtx.drawImage(this.canvas, 0, 0);
+                }
+                
+                // Download the image
+                const link = document.createElement('a');
+                link.download = `glasses-tryeon-${Date.now()}.png`;
+                link.href = captureCanvas.toDataURL();
+                link.click();
+                
+                this.updateStatus('Snapshot captured!', 'ready');
+                setTimeout(() => this.updateStatus('Camera ready - Position your face in the frame', 'ready'), 2000);
+            }
+
+            updateStatus(message, type) {
+                this.status.textContent = message;
+                this.status.className = `status ${type}`;
+            }
+        }
+
+        // Initialize the app when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new VirtualGlassesTryOn();
+        });
+    </script>
 </body>
 </html>
